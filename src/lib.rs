@@ -109,6 +109,9 @@ pub struct Conf<'a> {
     /// Must match what specified in args without dashes, needed to locate the cookie file
     /// directory with different/esoteric networks
     pub network: &'a str,
+
+    /// Create a descriptor based wallet as the default wallet using this descriptor
+    pub descriptors: Option<(&'a str, &'a str)>,
 }
 
 impl Default for Conf<'_> {
@@ -118,6 +121,20 @@ impl Default for Conf<'_> {
             view_stdout: false,
             p2p: P2P::No,
             network: "regtest",
+            descriptors: None,
+        }
+    }
+}
+
+impl Conf {
+    /// Create a new Conf
+    pub fn new(args: Vec<&str>, view_stdout: bool, p2p: P2P, network: &str, descriptors: Option<(&str, &str)>) -> Self {
+        Conf<'static> {
+            args,
+            view_stdout,
+            p2p,
+            network,
+            descriptors,
         }
     }
 }
@@ -187,17 +204,39 @@ impl BitcoinD {
         let client = loop {
             thread::sleep(Duration::from_millis(500));
             assert!(process.stderr.is_none());
-            let client_result = Client::new(&rpc_url, Auth::CookieFile(cookie_file.clone()));
+            let client_result =
+                Client::new(rpc_url.as_str(), Auth::CookieFile(cookie_file.clone()));
             if let Ok(client_base) = client_result {
                 // RpcApi has get_blockchain_info method, however being generic with `Value` allows
                 // to be compatible with different version, in the end we are only interested if
                 // the call is succesfull not in the returned value.
                 if client_base.call::<Value>("getblockchaininfo", &[]).is_ok() {
-                    client_base
-                        .create_wallet("default", None, None, None, None)
-                        .unwrap();
-                    break Client::new(&node_url_default, Auth::CookieFile(cookie_file.clone()))
-                        .unwrap();
+                    if conf.descriptors.is_some() {
+                        client_base
+                            .create_wallet(
+                                "default",
+                                Some(false),
+                                Some(true),
+                                Some(""),
+                                Some(false),
+                                Some(true),
+                            )
+                            .unwrap();
+
+                        let desc = conf.descriptors.unwrap().0;
+                        let ch_desc = conf.descriptors.unwrap().1;
+
+                        client_base.import_descriptors(desc, ch_desc).unwrap();
+                    } else {
+                        client_base
+                            .create_wallet("default", None, None, None, None, None)
+                            .unwrap();
+                    }
+                    break Client::new(
+                        node_url_default.as_str(),
+                        Auth::CookieFile(cookie_file.clone()),
+                    )
+                    .unwrap();
                 }
             }
         };
@@ -248,7 +287,7 @@ impl BitcoinD {
     pub fn create_wallet<T: AsRef<str>>(&self, wallet: T) -> Result<Client, Error> {
         let _ = self
             .client
-            .create_wallet(wallet.as_ref(), None, None, None, None)?;
+            .create_wallet(wallet.as_ref(), None, None, None, None, None)?;
         Ok(Client::new(
             &self.rpc_url_with_wallet(wallet),
             Auth::CookieFile(self.params.cookie_file.clone()),

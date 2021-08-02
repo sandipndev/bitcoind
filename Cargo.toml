@@ -17,6 +17,9 @@ home = "0.5.3"  # use same ver in build-dep
 [dev-dependencies]
 env_logger = "0.8"
 
+[patch.crates-io]
+core-rpc = { git="https://github.com/sandipndev/rust-bitcoincore-rpc", branch="bech32m-support" }
+
 [build-dependencies]
 ureq = "<2"  # allows to keep MSRV 1.41.1
 bitcoin_hashes = "0.10"
